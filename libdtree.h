@@ -11,10 +11,10 @@
 
 DOCUMENTATION
 
-    Functions:
+    Functions (macros):
 
-        dtree_grow
-            Tree dtree_grow(float *data, float *target, int ncol, int nrow);
+        dtree_fit
+            Tree dtree_fit(float *data, float *target, int ncol, int nrow);
                 Train a decision tree classifier with the given data (feature
                 array) and target. The data represents (flatten) feature matrix
                 in row-major order.
@@ -39,12 +39,10 @@ DOCUMENTATION
                         flatten numeric values following row-major matrix order
                     target:
                         target classes, encoded from 0, 1, ..., nclass-1
-                    ncol:
-                        number of columns (or features)
 
 
         dtree_predict
-            float *dtree_predict(Tree tree, float *data);
+            void dtree_predict(Tree tree, float *data, int ncol, int nrow, float *out);
                 Given a grown tree, make categorical predictions on the given
                 data.
 
@@ -56,6 +54,9 @@ DOCUMENTATION
                         target classes, encoded from 0, 1, ..., nclass-1
                     ncol:
                         number of columns (or features)
+                    nrow:
+                        number of samples
+                    out: output array buffer to hold the prediction result
 
 NOTES
 
@@ -71,26 +72,26 @@ NOTES
 
 ////////////////////////////////////////////////////////////////////////////////
 //
-// The constants that can be overridden
+// Internal consts
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-#ifndef MIN_SAMPLE_SPLIT
-#define MIN_SAMPLE_SPLIT 1
-#endif
+// Aliases
+#define dtree_fit(data, target, ncol, nrow) dtree_grow(data, target, ncol, nrow);
+#define dtree_fit_with_param(data, target, ncol, nrow, param) dtree_grow_with_param(data, target, ncol, nrow, param);
 
-#ifndef MAX_DEPTH
-#define MAX_DEPTH 10
-#endif
-
-////////////////////////////////////////////////////////////////////////////////
+// Consts
+#define MIN_LIST_CAP 16
 
 // API prototypes
 
 typedef struct Tree Tree;
+typedef struct TreeParam TreeParam;
+
 Tree *dtree_grow(float *data, float *target, int ncol, int nrow);
+Tree *dtree_grow_with_param(float *data, float *target, int ncol, int nrow, TreeParam param);
 float dtree_predict_single(Tree *tree, float *data);
-float *dtree_predict(Tree *tree, float *data, int ncol, int nrow);
+void dtree_predict(Tree *tree, float *data, int ncol, int nrow, float *out);
 
 ////////////////////////////////////////////////////////////////////////////////
 //
@@ -113,8 +114,8 @@ typedef struct
 
 List ldt_listalloc()
 {
-    float *data = malloc(16 * sizeof(*data));
-    List l = {.cap = 16, .len = 0, .data = data};
+    float *data = malloc(MIN_LIST_CAP * sizeof(*data));
+    List l = {.cap = MIN_LIST_CAP, .len = 0, .data = data};
     return l;
 }
 
@@ -164,6 +165,12 @@ struct Tree
     float gain;
     Tree *lnode;
     Tree *rnode;
+};
+
+struct TreeParam
+{
+    int maxdepth;
+    int min_sample_split;
 };
 
 typedef struct Split
@@ -258,12 +265,10 @@ static inline float gain(float *parent, float *left, float *right, int nparent, 
     return (entropy(parent, nparent) - (lprop * entropy(left, nleft) + rprop * entropy(right, nright)));
 }
 
-float *getcol(float *data, int idxcol, int ncol, int nrow)
+inline void ldt_getcol(float *data, int idxcol, int ncol, int nrow, float *dst)
 {
-    float *res = malloc(nrow * sizeof(float));
     for (int i = 0; i < nrow; i++)
-        res[i] = data[idxcol + ncol * i];
-    return res;
+        dst[i] = data[idxcol + ncol * i];
 }
 
 int ispure(float *data, int arrlen)
@@ -287,9 +292,11 @@ Split best_split(float *data, float *target, int ncol, int nrow)
     currbest.rnrow = 0;
     currbest.gain = 0;
     float bestgain = -1;
+
+    float *xcol = malloc(nrow * sizeof(*xcol));
     for (int f = 0; f < ncol; f++)
     {
-        float *xcol = getcol(data, f, ncol, nrow);
+        ldt_getcol(data, f, ncol, nrow, xcol);
         List unique = ldt_listunique(xcol, nrow);
 
         // iterater over theslholds (i.e., the unique values) and take
@@ -353,20 +360,17 @@ Split best_split(float *data, float *target, int ncol, int nrow)
             }
             ldt_listfree(&lleftdata), ldt_listfree(&llefttarget), ldt_listfree(&lrightdata), ldt_listfree(&lrighttarget);
         }
-
         ldt_listfree(&unique);
-
-        // TODO: this is rather expensive. Consider using preallocated buffer
-        // before this loop and free afterwards.
-        free(xcol);
     }
+
+    free(xcol);
 
     return currbest;
 }
 
-Tree *ldt_grow(float *data, float *target, int ncol, int nrow, int depth)
+Tree *ldt_grow(float *data, float *target, int ncol, int nrow, int depth, TreeParam param)
 {
-    if (ispure(target, nrow) || (nrow < MIN_SAMPLE_SPLIT) || (depth == MAX_DEPTH))
+    if (ispure(target, nrow) || (nrow < param.min_sample_split) || (depth == param.maxdepth))
     {
         Tree *res = classify_asleaf(target, nrow);
         return res;
@@ -374,8 +378,8 @@ Tree *ldt_grow(float *data, float *target, int ncol, int nrow, int depth)
     else
     {
         Split best = best_split(data, target, ncol, nrow);
-        Tree *left = ldt_grow(best.ldata, best.ltarget, ncol, best.lnrow, depth + 1);
-        Tree *right = ldt_grow(best.rdata, best.rtarget, ncol, best.rnrow, depth + 1);
+        Tree *left = ldt_grow(best.ldata, best.ltarget, ncol, best.lnrow, depth + 1, param);
+        Tree *right = ldt_grow(best.rdata, best.rtarget, ncol, best.rnrow, depth + 1, param);
 
         Tree *n = malloc(sizeof(*n));
         n->featidx = best.featidx;
@@ -385,10 +389,8 @@ Tree *ldt_grow(float *data, float *target, int ncol, int nrow, int depth)
         n->lnode = left;
         n->rnode = right;
 
-        free(best.ldata);
-        free(best.ltarget);
-        free(best.rdata);
-        free(best.rtarget);
+        free(best.ldata), free(best.ltarget);
+        free(best.rdata), free(best.rtarget);
 
         return n;
     }
@@ -404,9 +406,18 @@ void dtree_free(Tree *tree)
     free(tree);
 }
 
+Tree *dtree_grow_with_param(float *data, float *target, int ncol, int nrow, TreeParam param)
+{
+    return ldt_grow(data, target, ncol, nrow, 0, param);
+}
+
 Tree *dtree_grow(float *data, float *target, int ncol, int nrow)
 {
-    return ldt_grow(data, target, ncol, nrow, 0);
+    TreeParam defaultparam = {
+        .maxdepth = 5,
+        .min_sample_split = 1,
+    };
+    return ldt_grow(data, target, ncol, nrow, 0, defaultparam);
 }
 
 float dtree_predict_single(Tree *tree, float *data)
@@ -423,9 +434,9 @@ float dtree_predict_single(Tree *tree, float *data)
     return dtree_predict_single(tree->rnode, data);
 }
 
-float *dtree_predict(Tree *tree, float *data, int ncol, int nrow)
+void dtree_predict(Tree *tree, float *data, int ncol, int nrow, float *out)
 {
-    List result = ldt_listalloc();
+    long cnt = 0;
     for (int i = 0; i < nrow * ncol; i += ncol)
     {
         float *row = calloc(ncol, sizeof(*row));
@@ -434,11 +445,10 @@ float *dtree_predict(Tree *tree, float *data, int ncol, int nrow)
             row[j - i] = data[j];
         }
         float class = dtree_predict_single(tree, row);
+        out[cnt++] = class;
 
-        ldt_listpush(&result, class);
         free(row);
     }
-    return result.data;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

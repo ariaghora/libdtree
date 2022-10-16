@@ -7,6 +7,45 @@ It is also easy for the other languages to interface with libdtree.
 
 ## API
 
+- `Tree dtree_fit(float *data, float *target, int ncol, int nrow);`
+    
+    Train a decision tree classifier with the given data (feature
+    array) and target. The data represents (flatten) feature matrix
+    in row-major order.
+
+    ### Arguments
+    - data: flatten numeric values following row-major matrix
+         order
+    - target: target classes, encoded from 0, 1, ..., nclass-1
+    - ncol: number of columns (or features)
+    - nrow: number of samples
+
+
+- `float *dtree_predict_single(Tree tree, float *data);`
+    
+    Given a grown tree, make a single categorical prediction on the given data.
+
+    ### Arguments
+    - data:
+         flatten numeric values following row-major matrix order
+    - target:
+         target classes, encoded from 0, 1, ..., nclass-1
+
+- `void dtree_predict(Tree tree, float *data, int ncol, int nrow, float *out);`
+    
+    Given a grown tree, make categorical predictions on the given data.
+
+    ### Arguments
+    - data:
+        flatten numeric values following row-major matrix order
+    - target:
+        target classes, encoded from 0, 1, ..., nclass-1
+    - ncol:
+        number of columns (or features)
+    - nrow:
+        number of samples
+    - out: output array buffer to hold the prediction result
+
 ## Example
 
 This example demonstrates the usage of decision tree on XOR gate dataset.
