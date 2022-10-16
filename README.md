@@ -7,63 +7,69 @@ It is also easy for the other languages to interface with libdtree.
 
 ## API
 
-- ```C
-  Tree dtree_fit(float *data, float *target, int ncol, int nrow);
-  ```
+This library only provides few main APIs:
+### `dtree_fit`
+
+```C
+Tree dtree_fit(float *data, float *target, int ncol, int nrow);
+```
+
+Train a decision tree classifier with the given data (feature array) and target. The data represents (flatten) feature matrix in row-major order. It returns a `Tree` struct to make predictions later.
+
+**Arguments**
+- data: flatten numeric values following row-major matrix
+        order
+- target: target classes, encoded from 0, 1, ..., nclass-1
+- ncol: number of columns (or features)
+- nrow: number of samples
+
+### `dtree_fit_with_param`
+```C
+Tree dtree_fit_with_param(
+  float *data, float *target, int ncol, int nrow, TreeParam param
+);
+```
     
-    Train a decision tree classifier with the given data (feature array) and target. The data represents (flatten) feature matrix in row-major order. It returns a `Tree` struct to make predictions later.
+Same as `dtree_fit`, but instead of using default tree parameter, we should pass `param` that we define ourselves.
 
-    ### Arguments
-    - data: flatten numeric values following row-major matrix
-         order
-    - target: target classes, encoded from 0, 1, ..., nclass-1
-    - ncol: number of columns (or features)
-    - nrow: number of samples
+**Arguments**
+- data: flatten numeric values following row-major matrix
+        order
+- target: target classes, encoded from 0, 1, ..., nclass-1
+- ncol: number of columns (or features)
+- nrow: number of samples
+- param: the struct containing tree parameters
 
-- ```C
-  Tree dtree_fit_with_param(
-    float *data, float *target, int ncol, int nrow, TreeParam param
-  );
-  ```
-    
-    Same as `dtree_fit`, but instead of using default tree parameter, we should pass `param` that we define ourselves.
+### `dtree_predict_single`
+```C
+float *dtree_predict_single(Tree tree, float *data);
+```
 
-    ### Arguments
-    - data: flatten numeric values following row-major matrix
-         order
-    - target: target classes, encoded from 0, 1, ..., nclass-1
-    - ncol: number of columns (or features)
-    - nrow: number of samples
-    - param: the struct containing tree parameters
+Given a grown tree, make a single categorical prediction on the given data.
 
-- ```C
-  float *dtree_predict_single(Tree tree, float *data);
-  ```
-    
-    Given a grown tree, make a single categorical prediction on the given data.
-
-    ### Arguments
-    - data:
-         flatten numeric values following row-major matrix order
-    - target:
-         target classes, encoded from 0, 1, ..., nclass-1
-
-- ```C 
-  void dtree_predict(Tree tree, float *data, int ncol, int nrow, float *out);
-  ```
-    
-    Given a grown tree, make categorical predictions on the given data.
-
-    ### Arguments
-    - data:
+**Arguments**
+- data:
         flatten numeric values following row-major matrix order
-    - target:
+- target:
         target classes, encoded from 0, 1, ..., nclass-1
-    - ncol:
-        number of columns (or features)
-    - nrow:
-        number of samples
-    - out: output array buffer to hold the prediction result
+
+### `dtree_predict`
+```C 
+void dtree_predict(Tree tree, float *data, int ncol, int nrow, float *out);
+```
+    
+Given a grown tree, make categorical predictions on the given data.
+
+**Arguments**
+- data:
+    flatten numeric values following row-major matrix order
+- target:
+    target classes, encoded from 0, 1, ..., nclass-1
+- ncol:
+    number of columns (or features)
+- nrow:
+    number of samples
+- out: output array buffer to hold the prediction result
 
 ## Example
 
