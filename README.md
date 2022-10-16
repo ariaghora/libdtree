@@ -7,11 +7,11 @@ It is also easy for the other languages to interface with libdtree.
 
 ## API
 
-- `Tree dtree_fit(float *data, float *target, int ncol, int nrow);`
+- ```C
+  Tree dtree_fit(float *data, float *target, int ncol, int nrow);
+  ```
     
-    Train a decision tree classifier with the given data (feature
-    array) and target. The data represents (flatten) feature matrix
-    in row-major order.
+    Train a decision tree classifier with the given data (feature array) and target. The data represents (flatten) feature matrix in row-major order. It returns a `Tree` struct to make predictions later.
 
     ### Arguments
     - data: flatten numeric values following row-major matrix
@@ -20,8 +20,25 @@ It is also easy for the other languages to interface with libdtree.
     - ncol: number of columns (or features)
     - nrow: number of samples
 
+- ```C
+  Tree dtree_fit_with_param(
+    float *data, float *target, int ncol, int nrow, TreeParam param
+  );
+  ```
+    
+    Same as `dtree_fit`, but instead of using default tree parameter, we should pass `param` that we define ourselves.
 
-- `float *dtree_predict_single(Tree tree, float *data);`
+    ### Arguments
+    - data: flatten numeric values following row-major matrix
+         order
+    - target: target classes, encoded from 0, 1, ..., nclass-1
+    - ncol: number of columns (or features)
+    - nrow: number of samples
+    - param: the struct containing tree parameters
+
+- ```C
+  float *dtree_predict_single(Tree tree, float *data);
+  ```
     
     Given a grown tree, make a single categorical prediction on the given data.
 
@@ -31,7 +48,9 @@ It is also easy for the other languages to interface with libdtree.
     - target:
          target classes, encoded from 0, 1, ..., nclass-1
 
-- `void dtree_predict(Tree tree, float *data, int ncol, int nrow, float *out);`
+- ```C 
+  void dtree_predict(Tree tree, float *data, int ncol, int nrow, float *out);
+  ```
     
     Given a grown tree, make categorical predictions on the given data.
 
@@ -64,30 +83,32 @@ int main()
         0, 0};
 
     // targets
-    float target[4] = {
-        0,
-        1,
-        1,
-        0};
+    float target[4] = {0, 1, 1, 0};
 
     int nrow = 4;
     int ncol = 2;
-    Tree *tree = dtree_grow(data, target, ncol, nrow);
+    Tree *tree = dtree_fit(data, target, ncol, nrow);
 
-    // make bulk predictions on the original data (which is expected to
-    // reproduce the original target)
-    float *res_bulk = dtree_predict(tree, data, ncol, nrow);
+    /*
+        make bulk predictions on the original data (which is expected to
+        reproduce the original target)
+    */
+    // allocate prediction output buffer
+    float predictions[nrow];
+    dtree_predict(tree, data, ncol, nrow, predictions);
+
     for (int i = 0; i < nrow; i++)
     {
-        printf("result %d: %.2f\n", i, res_bulk[i]);
+        printf("result %d: %.2f\n", i, predictions[i]);
     }
 
-    // make a single prediction
+    /*
+        make a single class prediction
+    */
     float test[2] = {1, 0};
-    float res = dtree_predict_single(tree, test);
-    printf("result single: %.2f\n", res); // should print 1.00
+    float class = dtree_predict_single(tree, test);
 
-    free(res_bulk);
+    printf("result single: %.2f\n", class); // should print 1.00
 
     dtree_free(tree);
     return 0;
