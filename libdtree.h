@@ -114,7 +114,7 @@ typedef struct
 
 List ldt_listalloc()
 {
-    float *data = malloc(MIN_LIST_CAP * sizeof(*data));
+    float *data = (float *)malloc(MIN_LIST_CAP * sizeof(*data));
     List l = {.cap = MIN_LIST_CAP, .len = 0, .data = data};
     return l;
 }
@@ -204,7 +204,7 @@ inline float ldt_arrmax(float *x, long arrlen)
 float *ldt_bincount(float *x, long arrlen)
 {
     int max = (int)(ldt_arrmax(x, arrlen)) + 1;
-    float *res = calloc(max, sizeof(float));
+    float *res = (float *)calloc(max, sizeof(float));
     for (int i = 0; i < arrlen; i++)
         res[(int)(x[i])] += 1;
     return res;
@@ -213,7 +213,10 @@ float *ldt_bincount(float *x, long arrlen)
 Tree *classify_asleaf(float *target, int arrlen)
 {
     int max = (int)ldt_arrmax(target, arrlen);
-    int *cnt = calloc(max + 1, sizeof(*cnt));
+    int cnt[max + 1];
+    for (int i = 0; i < max + 1; i++)
+        cnt[i] = 0;
+
     for (int i = 0; i < arrlen; i++)
     {
         cnt[(int)target[i]]++;
@@ -229,9 +232,8 @@ Tree *classify_asleaf(float *target, int arrlen)
             currmax = cnt[i];
         }
     }
-    free(cnt);
 
-    Tree *n = malloc(sizeof(*n));
+    Tree *n = (Tree *)malloc(sizeof(*n));
     n->isleaf = 1;
     n->value = (float)idxmax;
     n->lnode = NULL;
@@ -281,19 +283,21 @@ int ispure(float *data, int arrlen)
 
 Split best_split(float *data, float *target, int ncol, int nrow)
 {
-    Split currbest;
-    currbest.ldata = NULL;
-    currbest.rdata = NULL;
-    currbest.ltarget = NULL;
-    currbest.rtarget = NULL;
-    currbest.featidx = 0;
-    currbest.thresh = 0;
-    currbest.lnrow = 0;
-    currbest.rnrow = 0;
-    currbest.gain = 0;
+    Split split;
+    split.ldata = NULL;
+    split.rdata = NULL;
+    split.ltarget = NULL;
+    split.rtarget = NULL;
+    split.featidx = 0;
+    split.thresh = 0;
+    split.lnrow = 0;
+    split.rnrow = 0;
+    split.gain = 0;
     float bestgain = -1;
 
-    float *xcol = malloc(nrow * sizeof(*xcol));
+    // buffer to get each column data (the f-th) in the following iteration
+    float xcol[nrow];
+
     for (int f = 0; f < ncol; f++)
     {
         ldt_getcol(data, f, ncol, nrow, xcol);
@@ -303,10 +307,14 @@ Split best_split(float *data, float *target, int ncol, int nrow)
         // the best one
         for (int i = 0; i < unique.len; i++)
         {
-            List lleftdata = ldt_listalloc();
-            List llefttarget = ldt_listalloc();
-            List lrightdata = ldt_listalloc();
-            List lrighttarget = ldt_listalloc();
+            float leftdata[ncol * nrow];
+            float lefttarget[nrow];
+            float rightdata[ncol * nrow];
+            float righttarget[nrow];
+            int lnrow = 0;
+            int rnrow = 0;
+            int loffset = 0;
+            int roffset = 0;
 
             // split data
             for (int row = 0; row < nrow; row++)
@@ -314,58 +322,56 @@ Split best_split(float *data, float *target, int ncol, int nrow)
                 if (data[f + ncol * row] <= unique.data[i])
                 {
                     for (int c = 0; c < ncol; c++)
-                        ldt_listpush(&lleftdata, data[c + ncol * row]);
-                    ldt_listpush(&llefttarget, target[row]);
+                        leftdata[loffset++] = data[c + ncol * row];
+                    lefttarget[lnrow++] = target[row];
                 }
                 else
                 {
                     for (int c = 0; c < ncol; c++)
-                        ldt_listpush(&lrightdata, data[c + ncol * row]);
-                    ldt_listpush(&lrighttarget, target[row]);
+                        rightdata[roffset++] = data[c + ncol * row];
+                    righttarget[rnrow++] = target[row];
                 }
             }
 
             // obtain a split with best gain
-            if ((lleftdata.len > 0) && (lrightdata.len > 0))
+            if ((lnrow > 0) && (rnrow > 0))
             {
                 float g = gain(
                     target,
-                    llefttarget.data,
-                    lrighttarget.data,
+                    lefttarget,
+                    righttarget,
                     nrow,
-                    llefttarget.len,
-                    lrighttarget.len);
+                    lnrow,
+                    rnrow);
 
                 if (g > bestgain)
                 {
-                    bestgain = g;
-                    currbest.gain = g;
-                    currbest.featidx = f;
-                    currbest.thresh = unique.data[i];
-                    currbest.lnrow = llefttarget.len;  // left nrow
-                    currbest.rnrow = lrighttarget.len; // right nrow
+                    // set the current best split
+                    split.gain = g;
+                    split.featidx = f;
+                    split.thresh = unique.data[i];
+                    split.lnrow = lnrow;
+                    split.rnrow = rnrow;
 
                     // free the buffers before (re)allocating
-                    free(currbest.ldata), free(currbest.ltarget), free(currbest.rdata), free(currbest.rtarget);
+                    free(split.ldata), free(split.ltarget);
+                    free(split.rdata), free(split.rtarget);
 
-                    currbest.ldata = malloc(lleftdata.len * sizeof(*lleftdata.data));
-                    currbest.ltarget = malloc(llefttarget.len * sizeof(*llefttarget.data));
-                    currbest.rdata = malloc(lrightdata.len * sizeof(*lrightdata.data));
-                    currbest.rtarget = malloc(lrighttarget.len * sizeof(*lrighttarget.data));
-                    memcpy(currbest.ldata, lleftdata.data, lleftdata.len * sizeof(*lleftdata.data));
-                    memcpy(currbest.ltarget, llefttarget.data, llefttarget.len * sizeof(*llefttarget.data));
-                    memcpy(currbest.rdata, lrightdata.data, lrightdata.len * sizeof(*lrightdata.data));
-                    memcpy(currbest.rtarget, lrighttarget.data, lrighttarget.len * sizeof(*lrighttarget.data));
+                    split.ldata = (float *)malloc(loffset * sizeof(*leftdata));
+                    split.ltarget = (float *)malloc(lnrow * sizeof(*lefttarget));
+                    split.rdata = (float *)malloc(roffset * sizeof(*rightdata));
+                    split.rtarget = (float *)malloc(rnrow * sizeof(*lefttarget));
+                    memcpy(split.ldata, leftdata, loffset * sizeof(*leftdata));
+                    memcpy(split.ltarget, lefttarget, lnrow * sizeof(*lefttarget));
+                    memcpy(split.rdata, rightdata, roffset * sizeof(*rightdata));
+                    memcpy(split.rtarget, righttarget, rnrow * sizeof(*righttarget));
                 }
             }
-            ldt_listfree(&lleftdata), ldt_listfree(&llefttarget), ldt_listfree(&lrightdata), ldt_listfree(&lrighttarget);
         }
         ldt_listfree(&unique);
     }
 
-    free(xcol);
-
-    return currbest;
+    return split;
 }
 
 Tree *ldt_grow(float *data, float *target, int ncol, int nrow, int depth, TreeParam param)
@@ -381,7 +387,7 @@ Tree *ldt_grow(float *data, float *target, int ncol, int nrow, int depth, TreePa
         Tree *left = ldt_grow(best.ldata, best.ltarget, ncol, best.lnrow, depth + 1, param);
         Tree *right = ldt_grow(best.rdata, best.rtarget, ncol, best.rnrow, depth + 1, param);
 
-        Tree *n = malloc(sizeof(*n));
+        Tree *n = (Tree *)malloc(sizeof(*n));
         n->featidx = best.featidx;
         n->thresh = best.thresh;
         n->isleaf = 0;
@@ -439,15 +445,13 @@ void dtree_predict(Tree *tree, float *data, int ncol, int nrow, float *out)
     long cnt = 0;
     for (int i = 0; i < nrow * ncol; i += ncol)
     {
-        float *row = calloc(ncol, sizeof(*row));
+        float row[ncol];
         for (int j = i; j < ncol + i; j++)
         {
             row[j - i] = data[j];
         }
-        float class = dtree_predict_single(tree, row);
-        out[cnt++] = class;
-
-        free(row);
+        float pred = dtree_predict_single(tree, row);
+        out[cnt++] = pred;
     }
 }
 
